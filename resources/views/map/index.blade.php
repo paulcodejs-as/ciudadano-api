@@ -42,8 +42,10 @@
 
         <fieldset class="field segmented" id="f-metric">
             <legend>Métrica</legend>
-            <label><input type="radio" name="metric" value="rate" checked><span>Tasa por 10 000 hab.</span></label>
-            <label><input type="radio" name="metric" value="total"><span>Total</span></label>
+            <div class="seg-options">
+                <label><input type="radio" name="metric" value="rate" checked><span>Tasa por 10 000 hab.</span></label>
+                <label><input type="radio" name="metric" value="total"><span>Total</span></label>
+            </div>
         </fieldset>
 
         <button type="button" class="btn" id="locate-btn">

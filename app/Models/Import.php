@@ -22,6 +22,7 @@ class Import extends Model
         'data_source_id',
         'user_id',
         'file_name',
+        'file_path',
         'rows_read',
         'rows_imported',
         'rows_skipped',

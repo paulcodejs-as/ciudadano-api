@@ -36,6 +36,10 @@ return [
     // Por defecto: campo pob_2024 de la capa "Distritos INEI 2025" del PNUD (IDE 2024).
     'population_source' => env('POPULATION_SOURCE', 'Población 2024 (PNUD, IDE 2024, a partir de datos del INEI)'),
 
+    // Tamaño máximo (MB) del CSV que se sube desde el panel. El límite real es el menor
+    // entre este valor y upload_max_filesize / post_max_size de php.ini.
+    'max_upload_mb' => 64,
+
     // Minutos que se cachean las respuestas públicas. La caché se invalida al importar.
     'cache_minutes' => 1440,
 ];

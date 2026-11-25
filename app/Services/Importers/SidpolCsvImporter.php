@@ -217,6 +217,31 @@ class SidpolCsvImporter
         }
     }
 
+    /**
+     * Revisa solo la cabecera (para validar una subida antes de encolarla).
+     *
+     * @return string|null mensaje de error, o null si el archivo tiene las columnas necesarias
+     */
+    public function headerError(string $path): ?string
+    {
+        $handle = @fopen($path, 'rb');
+        if (! $handle) {
+            return 'No se pudo leer el archivo.';
+        }
+
+        try {
+            $delimiter = $this->detectDelimiter((string) fgets($handle));
+            rewind($handle);
+            $this->readHeader($handle, $delimiter);
+
+            return null;
+        } catch (RuntimeException $e) {
+            return $e->getMessage();
+        } finally {
+            fclose($handle);
+        }
+    }
+
     /** @return array<string, int> nombre de columna en mayúsculas => índice */
     private function readHeader($handle, string $delimiter): array
     {

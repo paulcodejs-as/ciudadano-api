@@ -161,7 +161,13 @@ function renderMap(collection) {
             layer.on({
                 mouseover: () => layer.setStyle({ weight: feature.properties.ubigeo === state.selected ? 3 : 2.5, color: '#0b0b0b' }),
                 mouseout: () => geoLayer.resetStyle(layer),
-                click: () => selectDistrict(feature.properties.ubigeo),
+                click: () => {
+                    selectDistrict(feature.properties.ubigeo);
+                    // En pantallas angostas el detalle queda debajo del mapa.
+                    if (window.matchMedia('(max-width: 899px)').matches) {
+                        els.detail.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                },
             });
         },
     }).addTo(map);

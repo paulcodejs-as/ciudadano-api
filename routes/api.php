@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\Admin\ImportController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\CrimeTypeController;
 use App\Http\Controllers\Api\V1\DistrictController;
@@ -36,7 +37,11 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('auth/me', [AuthController::class, 'me'])->name('auth.me');
 
         Route::middleware('admin')->prefix('admin')->name('admin.')->group(function () {
-            // Prompt 5: importaciones (POST/GET imports)
+            Route::get('imports', [ImportController::class, 'index'])->name('imports.index');
+            Route::post('imports', [ImportController::class, 'store'])
+                ->middleware('throttle:10,1')->name('imports.store');
+            Route::get('imports/{import}', [ImportController::class, 'show'])
+                ->whereNumber('import')->name('imports.show');
         });
     });
 });
