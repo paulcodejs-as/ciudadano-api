@@ -10,12 +10,13 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Tests\Feature\Api\V1\StatsTestData;
+use Tests\Support\WritesXlsx;
 use Tests\TestCase;
 
 /** API /api/v1/admin/imports (Sanctum) y panel /admin/imports (sesión). La cola es sync en tests. */
 class ImportsTest extends TestCase
 {
-    use RefreshDatabase, StatsTestData;
+    use RefreshDatabase, StatsTestData, WritesXlsx;
 
     private User $admin;
 
@@ -70,6 +71,25 @@ class ImportsTest extends TestCase
             ->assertJsonPath('meta.total', 1)
             ->assertJsonPath('data.0.id', $id)
             ->assertJsonMissingPath('data.0.log');
+    }
+
+    public function test_api_accepts_excel_xlsx(): void
+    {
+        Sanctum::actingAs($this->admin);
+        $path = self::xlsxFile([
+            ['ANIO', 'MES', 'UBIGEO_HECHO', 'P_MODALIDADES', 'cantidad'],
+            [2025, 4, 150122, 'Robo', 6],
+        ]);
+        $file = new UploadedFile($path, 'denuncias_2025.xlsx', null, null, true);
+
+        $response = $this->post('/api/v1/admin/imports', ['file' => $file], ['Accept' => 'application/json'])
+            ->assertStatus(202)
+            ->assertJsonPath('data.status', 'done')
+            ->assertJsonPath('data.rows_imported', 1);
+
+        $this->assertStringEndsWith('.xlsx', Import::find($response->json('data.id'))->file_path);
+        $this->assertSame(6, CrimeStatMonthly::where(['year' => 2025, 'month' => 4])->value('count'));
+        @unlink($path);
     }
 
     public function test_api_rejects_file_without_sidpol_columns(): void

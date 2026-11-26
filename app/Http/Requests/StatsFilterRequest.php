@@ -28,7 +28,7 @@ class StatsFilterRequest extends FormRequest
             'from' => ['nullable', 'date_format:Y-m'],
             'to' => ['nullable', 'date_format:Y-m'],
             'crime_type' => ['nullable', 'string', Rule::exists('crime_types', 'slug')],
-            'metric' => ['nullable', Rule::in([StatsFilters::METRIC_RATE, StatsFilters::METRIC_TOTAL])],
+            'metric' => ['nullable', Rule::in(StatsFilters::METRICS)],
         ];
     }
 
@@ -56,7 +56,7 @@ class StatsFilterRequest extends FormRequest
             'from.date_format' => 'El mes inicial debe tener el formato AAAA-MM.',
             'to.date_format' => 'El mes final debe tener el formato AAAA-MM.',
             'crime_type.exists' => 'La modalidad no existe.',
-            'metric.in' => 'La métrica debe ser rate o total.',
+            'metric.in' => 'La métrica debe ser rate, total o change.',
         ];
     }
 }

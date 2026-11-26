@@ -2,6 +2,7 @@
 
 namespace App\Services\Importers;
 
+use App\Support\UbigeoScope;
 use App\Services\StatsCache;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -43,6 +44,7 @@ class DistrictGeoJsonImporter
                 'NOMBDIST' => $props['NOMBDIST'] ?? $props['distrito'] ?? null,
                 'NOMBPROV' => $props['NOMBPROV'] ?? $props['provincia'] ?? null,
                 'NOMBDEP' => $props['NOMBDEP'] ?? $props['departamen'] ?? null,
+                'POB' => $props['pob_2024'] ?? $props['POB_2024'] ?? null,
             ];
             $ubigeo = $this->normalizeUbigeo($props['IDDIST']);
 
@@ -115,16 +117,10 @@ class DistrictGeoJsonImporter
         return str_pad($value, 6, '0', STR_PAD_LEFT);
     }
 
-    /** @param list<string> $prefixes */
-    private function inScope(string $ubigeo, array $prefixes): bool
+    /** Ámbito configurado (todo el país si no hay prefijos). */
+    private function inScope(string $ubigeo, array $prefixes = []): bool
     {
-        foreach ($prefixes as $prefix) {
-            if (str_starts_with($ubigeo, $prefix)) {
-                return true;
-            }
-        }
-
-        return false;
+        return UbigeoScope::contains($ubigeo);
     }
 
     /** Convierte Polygon a MultiPolygon (la columna es MULTIPOLYGON). */
@@ -149,13 +145,17 @@ class DistrictGeoJsonImporter
         $now = now()->toDateTimeString();
 
         // ST_GeomFromGeoJSON ya usa lng,lat. Opción 2: acepta y descarta coordenadas Z.
+        // La capa INEI 2025 trae pob_2024: si viene, se guarda; si no, no se borra la población que ya hubiera.
+        $population = isset($props['POB']) && (int) round((float) $props['POB']) > 0 ? (int) round((float) $props['POB']) : null;
+
         DB::statement(
-            'INSERT INTO districts (ubigeo, name, province, department, geom, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ST_GeomFromGeoJSON(?, 2, 4326), ?, ?)
+            'INSERT INTO districts (ubigeo, name, province, department, population, geom, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ST_GeomFromGeoJSON(?, 2, 4326), ?, ?)
              ON DUPLICATE KEY UPDATE
                 name = VALUES(name),
                 province = VALUES(province),
                 department = VALUES(department),
+                population = COALESCE(VALUES(population), population),
                 geom = VALUES(geom),
                 updated_at = VALUES(updated_at)',
             [
@@ -163,6 +163,7 @@ class DistrictGeoJsonImporter
                 $this->text($props['NOMBDIST'] ?? null, $ubigeo),
                 $this->text($props['NOMBPROV'] ?? null, $this->defaultRegion($ubigeo)),
                 $this->text($props['NOMBDEP'] ?? null, $this->defaultRegion($ubigeo)),
+                $population,
                 $geojson,
                 $now,
                 $now,

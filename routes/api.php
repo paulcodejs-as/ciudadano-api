@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\V1\Admin\ImportController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\CrimeTypeController;
 use App\Http\Controllers\Api\V1\DistrictController;
+use App\Http\Controllers\Api\V1\GeoController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\MapController;
 use App\Http\Controllers\Api\V1\RankingController;
@@ -20,12 +21,25 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
     Route::get('crime-types', [CrimeTypeController::class, 'index'])->name('crime-types.index');
 
     Route::get('districts', [DistrictController::class, 'index'])->name('districts.index');
-    // "locate" va antes de {ubigeo}.
+    // "locate" y "compare" van antes de {ubigeo}.
     Route::get('districts/locate', [DistrictController::class, 'locate'])->name('districts.locate');
+    Route::get('districts/compare', [DistrictController::class, 'compare'])->name('districts.compare');
     Route::get('districts/{ubigeo}', [DistrictController::class, 'show'])
         ->where('ubigeo', '[0-9]{6}')->name('districts.show');
 
+    // Filtros en cascada y detalle de cualquier nivel (departamento 2 dígitos, provincia 4, distrito 6).
+    Route::get('geo/departments', [GeoController::class, 'departments'])->name('geo.departments');
+    Route::get('geo/departments/{department}/provinces', [GeoController::class, 'provinces'])
+        ->where('department', '[0-9]{2}')->name('geo.provinces');
+    Route::get('geo/provinces/{province}/districts', [GeoController::class, 'districts'])
+        ->where('province', '[0-9]{4}')->name('geo.districts');
+    Route::get('regions/{code}', [GeoController::class, 'show'])
+        ->where('code', '[0-9]{2}|[0-9]{4}|[0-9]{6}')->name('regions.show');
+
+    Route::get('map/regions', [MapController::class, 'regions'])->name('map.regions');
     Route::get('map/districts', [MapController::class, 'districts'])->name('map.districts');
+    Route::get('map/points', [MapController::class, 'points'])->name('map.points');
+    Route::get('map/timeline', [MapController::class, 'timeline'])->name('map.timeline');
     Route::get('rankings', [RankingController::class, 'index'])->name('rankings.index');
 
     // Autenticación de administradores (Sanctum)

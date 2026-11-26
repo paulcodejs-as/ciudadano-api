@@ -18,17 +18,25 @@ class DistrictsTest extends TestCase
 
     public function test_lists_districts_without_geometry(): void
     {
-        // Fuera del ámbito: no debe salir.
-        District::factory()->create(['ubigeo' => '040101', 'name' => 'AREQUIPA']);
+        District::factory()->create(['ubigeo' => '040101', 'name' => 'AREQUIPA', 'province' => 'AREQUIPA', 'department' => 'AREQUIPA']);
 
+        // Ámbito nacional por defecto: sale Arequipa.
         $response = $this->getJson('/api/v1/districts')
             ->assertOk()
             ->assertJsonPath('success', true)
-            ->assertJsonPath('meta.count', 3)
-            ->assertJsonPath('data.0.name', 'CALLAO')
+            ->assertJsonPath('meta.count', 4)
+            ->assertJsonPath('data.0.name', 'AREQUIPA')
             ->assertJsonStructure(['data' => [['ubigeo', 'name', 'province', 'department', 'population', 'area_km2']]]);
 
         $this->assertArrayNotHasKey('geom', $response->json('data.0'));
+    }
+
+    public function test_scope_prefixes_limit_districts(): void
+    {
+        config(['ciudadano.ubigeo_prefixes' => ['1501', '0701']]);
+        District::factory()->create(['ubigeo' => '040101', 'name' => 'AREQUIPA']);
+
+        $this->getJson('/api/v1/districts')->assertOk()->assertJsonPath('meta.count', 3);
     }
 
     public function test_shows_district_detail(): void
@@ -39,16 +47,20 @@ class DistrictsTest extends TestCase
             ->assertJsonPath('data.total', 60)
             ->assertJsonPath('data.rate', 6)
             ->assertJsonPath('data.ranking.position', 1)
-            ->assertJsonPath('data.ranking.of', 3)
+            // Puesto dentro de su provincia (Lima: Miraflores y Comas).
+            ->assertJsonPath('data.ranking.of', 2)
+            ->assertJsonPath('data.ranking.within.code', '1501')
             ->assertJsonPath('data.ranking.metric', 'rate')
             ->assertJsonCount(7, 'data.by_crime_type')
             ->assertJsonPath('data.by_crime_type.0.slug', 'robo')
             ->assertJsonPath('data.by_crime_type.0.total', 50)
+            // Sin datos de 2023 no hay comparación interanual (previous_total null).
             ->assertJsonPath('data.monthly', [
-                ['period' => '2024-01', 'total' => 50],
-                ['period' => '2024-02', 'total' => 10],
-                ['period' => '2024-03', 'total' => 0],
+                ['period' => '2024-01', 'total' => 50, 'rate' => 5, 'previous_total' => null],
+                ['period' => '2024-02', 'total' => 10, 'rate' => 1, 'previous_total' => null],
+                ['period' => '2024-03', 'total' => 0, 'rate' => 0, 'previous_total' => null],
             ])
+            ->assertJsonPath('data.change_pct', null)
             ->assertJsonPath('meta.from', '2024-01')
             ->assertJsonPath('meta.to', '2024-03');
     }
@@ -88,10 +100,12 @@ class DistrictsTest extends TestCase
 
     public function test_locate_validates_bounds(): void
     {
-        // Cusco.
-        $this->getJson('/api/v1/districts/locate?lat=-13.53&lng=-71.97')
+        // Santiago de Chile: fuera del Perú.
+        $this->getJson('/api/v1/districts/locate?lat=-33.45&lng=-70.66')
             ->assertUnprocessable()
-            ->assertJsonValidationErrors(['lat', 'lng']);
+            ->assertJsonValidationErrors(['lat']);
+        // Cusco ya está dentro del ámbito nacional: sin distrito cargado → 404, no 422.
+        $this->getJson('/api/v1/districts/locate?lat=-13.53&lng=-71.97')->assertNotFound();
 
         $this->getJson('/api/v1/districts/locate')
             ->assertUnprocessable()

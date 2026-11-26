@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use App\Support\UbigeoScope;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -50,15 +52,33 @@ class District extends Model
     public function scopeWithoutGeometry(Builder $query): Builder
     {
         return $query->select([
-            'id', 'ubigeo', 'name', 'province', 'department',
+            'id', 'ubigeo', 'department_code', 'province_code', 'name', 'province', 'department',
             'population', 'area_km2', 'created_at', 'updated_at',
         ]);
     }
 
-    public function scopeLimaCallao(Builder $query): Builder
+    /** Distritos del ámbito configurado (todo el país si no hay prefijos). */
+    public function scopeInScope(Builder $query): Builder
     {
-        return $query->where(fn (Builder $q) => $q
-            ->where('ubigeo', 'like', '1501%')
-            ->orWhere('ubigeo', 'like', '0701%'));
+        $prefixes = UbigeoScope::prefixes();
+        if ($prefixes === []) {
+            return $query;
+        }
+
+        return $query->where(function (Builder $q) use ($prefixes) {
+            foreach ($prefixes as $prefix) {
+                $q->orWhere('districts.ubigeo', 'like', $prefix.'%');
+            }
+        });
+    }
+
+    public function department(): BelongsTo
+    {
+        return $this->belongsTo(Department::class, 'department_code', 'code');
+    }
+
+    public function provinceRegion(): BelongsTo
+    {
+        return $this->belongsTo(Province::class, 'province_code', 'code');
     }
 }

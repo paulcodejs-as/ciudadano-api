@@ -13,7 +13,7 @@ class ImportSidpol extends Command
                             {path=storage/app/data/denuncias.csv : Ruta al CSV "Denuncias Policiales"}
                             {--user= : Email del admin que queda registrado en la importación}';
 
-    protected $description = 'Importa los conteos mensuales de denuncias SIDPOL de Lima Metropolitana y Callao';
+    protected $description = 'Importa los conteos mensuales de denuncias SIDPOL por distrito';
 
     public function handle(SidpolCsvImporter $importer): int
     {

@@ -4,7 +4,7 @@ namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-/** lat/lng dentro del rectángulo de Lima Metropolitana y Callao. */
+/** lat/lng dentro del rectángulo del Perú (config ciudadano.bounds). */
 class LocateDistrictRequest extends FormRequest
 {
     public function authorize(): bool
@@ -26,8 +26,8 @@ class LocateDistrictRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'lat.between' => 'La latitud está fuera de Lima Metropolitana y Callao.',
-            'lng.between' => 'La longitud está fuera de Lima Metropolitana y Callao.',
+            'lat.between' => 'La latitud está fuera del Perú.',
+            'lng.between' => 'La longitud está fuera del Perú.',
         ];
     }
 }

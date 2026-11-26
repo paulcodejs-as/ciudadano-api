@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Web\Admin\ImportController;
 use App\Http\Controllers\Web\Admin\LoginController;
+use App\Http\Controllers\Web\ApiDocsController;
 use App\Http\Controllers\Web\MapController;
 use Illuminate\Support\Facades\Route;
 
@@ -10,6 +11,10 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::get('/', [MapController::class, 'index'])->name('map.index');
+
+// Documentación de la API (Swagger UI).
+Route::get('docs', [ApiDocsController::class, 'index'])->name('docs.index');
+Route::get('docs/openapi.yaml', [ApiDocsController::class, 'spec'])->name('docs.spec');
 
 /*
 | Panel de administración (sesión web + is_admin).

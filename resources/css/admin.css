@@ -37,8 +37,8 @@ code { font-size: 0.85em; background: var(--surface-0); padding: 1px 5px; border
 }
 .brand { display: flex; align-items: center; gap: 10px; color: inherit; text-decoration: none; }
 .brand-mark {
-    width: 26px; height: 26px; border-radius: 7px; flex: none;
-    background: conic-gradient(from 200deg, #0d366b, #3987e5, #cde2fb, #0d366b);
+    width: 32px; height: 32px; border-radius: 8px; flex: none;
+    object-fit: cover; display: block;
 }
 .topnav { display: flex; align-items: center; gap: 16px; font-size: 0.9rem; flex-wrap: wrap; }
 .topnav form { margin: 0; }

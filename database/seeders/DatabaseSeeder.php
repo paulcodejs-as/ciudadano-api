@@ -12,6 +12,7 @@ class DatabaseSeeder extends Seeder
             CrimeTypeSeeder::class,
             DataSourceSeeder::class,
             AdminUserSeeder::class,
+            DataFilesSeeder::class, // distritos y archivos SIDPOL ya guardados
         ]);
     }
 }

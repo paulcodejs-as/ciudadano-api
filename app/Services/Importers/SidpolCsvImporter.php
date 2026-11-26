@@ -2,18 +2,22 @@
 
 namespace App\Services\Importers;
 
+use App\Support\UbigeoScope;
 use App\Models\CrimeStatMonthly;
 use App\Models\CrimeType;
 use App\Models\DataSource;
 use App\Models\District;
 use App\Models\Import;
 use App\Services\StatsCache;
+use DateTimeInterface;
+use Generator;
 use Illuminate\Support\Str;
+use OpenSpout\Reader\XLSX\Reader as XlsxReader;
 use RuntimeException;
 use Throwable;
 
 /**
- * Importa el CSV "Denuncias Policiales" (SIDPOL) a crime_stats_monthly.
+ * Importa "Denuncias Policiales" (SIDPOL), en CSV o Excel .xlsx, a crime_stats_monthly.
  *
  * Columnas esperadas (sin importar mayúsculas ni orden):
  * ANIO, MES, UBIGEO_HECHO, P_MODALIDADES, CANTIDAD.
@@ -54,7 +58,12 @@ class SidpolCsvImporter
             'status' => Import::STATUS_PENDING,
         ]);
 
-        $import->update(['status' => Import::STATUS_RUNNING, 'started_at' => now(), 'finished_at' => null]);
+        $import->update([
+            'status' => Import::STATUS_RUNNING,
+            'file_hash' => is_file($path) ? sha1_file($path) : null,
+            'started_at' => now(),
+            'finished_at' => null,
+        ]);
 
         try {
             $stats = $this->process($path, $source);
@@ -86,7 +95,7 @@ class SidpolCsvImporter
     private function process(string $path, DataSource $source): array
     {
         if (! is_file($path) || ! is_readable($path)) {
-            throw new RuntimeException("No se encuentra el archivo CSV: {$path}");
+            throw new RuntimeException("No se encuentra el archivo: {$path}");
         }
 
         $districts = District::pluck('id', 'ubigeo')->all();
@@ -97,12 +106,9 @@ class SidpolCsvImporter
         $crimeTypes = CrimeType::pluck('id', 'slug')->all();
         $prefixes = config('ciudadano.ubigeo_prefixes');
 
-        $handle = fopen($path, 'rb');
-        $firstLine = (string) fgets($handle);
-        $delimiter = $this->detectDelimiter($firstLine);
-        rewind($handle);
-
-        $columns = $this->readHeader($handle, $delimiter);
+        $rows = $this->rows($path);
+        $columns = $this->readHeader($rows);
+        $rows->next();
 
         $read = $imported = 0;
         $skip = ['out_of_scope' => 0, 'unknown_district' => 0, 'unknown_type' => 0, 'invalid' => 0];
@@ -110,8 +116,9 @@ class SidpolCsvImporter
         $unknownDistricts = [];
         $totals = []; // "district|type|year|month" => count
 
-        while (($row = fgetcsv($handle, 0, $delimiter)) !== false) {
-            if ($row === [null] || $row === []) {
+        for (; $rows->valid(); $rows->next()) {
+            $row = $rows->current();
+            if ($row === [null] || $row === [] || $row === ['']) {
                 continue; // línea vacía
             }
             $read++;
@@ -165,8 +172,6 @@ class SidpolCsvImporter
             $totals[$key] = ($totals[$key] ?? 0) + $count;
             $imported++;
         }
-
-        fclose($handle);
 
         $this->upsert($totals, $source->id);
         app(StatsCache::class)->flush();
@@ -224,30 +229,94 @@ class SidpolCsvImporter
      */
     public function headerError(string $path): ?string
     {
-        $handle = @fopen($path, 'rb');
-        if (! $handle) {
+        if (! is_file($path) || ! is_readable($path)) {
             return 'No se pudo leer el archivo.';
         }
 
         try {
-            $delimiter = $this->detectDelimiter((string) fgets($handle));
-            rewind($handle);
-            $this->readHeader($handle, $delimiter);
+            $this->readHeader($this->rows($path));
 
             return null;
         } catch (RuntimeException $e) {
             return $e->getMessage();
+        } catch (Throwable $e) {
+            return 'No se pudo leer el archivo: '.$e->getMessage();
+        }
+    }
+
+    /** "xlsx" si el archivo es un Excel (ZIP), "xls" si es Excel antiguo, si no "csv". */
+    public static function detectFormat(string $path): string
+    {
+        $magic = (string) @file_get_contents($path, false, null, 0, 8);
+
+        return match (true) {
+            str_starts_with($magic, "PK\x03\x04") => 'xlsx',
+            str_starts_with($magic, "\xD0\xCF\x11\xE0") => 'xls',
+            default => 'csv',
+        };
+    }
+
+    /**
+     * Filas del archivo como listas de textos, cabecera incluida. Lee CSV (cualquier
+     * separador) o Excel .xlsx (primera hoja) sin cargarlo entero en memoria.
+     *
+     * @return Generator<int, list<string|null>>
+     */
+    private function rows(string $path): Generator
+    {
+        $format = self::detectFormat($path);
+
+        if ($format === 'xls') {
+            throw new RuntimeException('El Excel antiguo (.xls) no se puede leer: guárdalo como .xlsx o CSV.');
+        }
+
+        if ($format === 'xlsx') {
+            $reader = new XlsxReader();
+            $reader->open($path);
+            try {
+                foreach ($reader->getSheetIterator() as $sheet) {
+                    foreach ($sheet->getRowIterator() as $row) {
+                        yield array_map(fn ($cell) => $this->cellToString($cell->getValue()), $row->getCells());
+                    }
+                    break; // solo la primera hoja
+                }
+            } finally {
+                $reader->close();
+            }
+
+            return;
+        }
+
+        $handle = fopen($path, 'rb');
+        try {
+            $delimiter = $this->detectDelimiter((string) fgets($handle));
+            rewind($handle);
+            while (($row = fgetcsv($handle, 0, $delimiter)) !== false) {
+                yield $row;
+            }
         } finally {
             fclose($handle);
         }
     }
 
-    /** @return array<string, int> nombre de columna en mayúsculas => índice */
-    private function readHeader($handle, string $delimiter): array
+    /** Excel guarda números (150101, 2024.0) y fechas: todo pasa a texto como en el CSV. */
+    private function cellToString(mixed $value): ?string
     {
-        $header = fgetcsv($handle, 0, $delimiter);
+        return match (true) {
+            $value === null => null,
+            $value instanceof DateTimeInterface => $value->format('Y-m-d'),
+            is_float($value) && floor($value) === $value => (string) (int) $value,
+            is_bool($value) => $value ? '1' : '0',
+            default => (string) $value,
+        };
+    }
+
+    /** @return array<string, int> nombre de columna en mayúsculas => índice */
+    private function readHeader(Generator $rows): array
+    {
+        $header = $rows->current();
         if (! is_array($header)) {
-            throw new RuntimeException('El CSV está vacío.');
+            throw new RuntimeException('El archivo está vacío.');
         }
 
         $columns = [];
@@ -268,7 +337,7 @@ class SidpolCsvImporter
 
         $missing = array_diff(self::REQUIRED_COLUMNS, array_keys($columns));
         if ($missing !== []) {
-            throw new RuntimeException('Faltan columnas en el CSV: '.implode(', ', $missing)
+            throw new RuntimeException('Faltan columnas en el archivo: '.implode(', ', $missing)
                 .'. Encontradas: '.implode(', ', array_keys($columns)));
         }
 
@@ -295,16 +364,10 @@ class SidpolCsvImporter
         return str_pad($m[1], 6, '0', STR_PAD_LEFT);
     }
 
-    /** @param list<string> $prefixes */
-    private function inScope(string $ubigeo, array $prefixes): bool
+    /** Ámbito configurado (todo el país si no hay prefijos). */
+    private function inScope(string $ubigeo, array $prefixes = []): bool
     {
-        foreach ($prefixes as $prefix) {
-            if (str_starts_with($ubigeo, $prefix)) {
-                return true;
-            }
-        }
-
-        return false;
+        return UbigeoScope::contains($ubigeo);
     }
 
     private function parseMonth(mixed $value): ?int

@@ -17,6 +17,8 @@ class DistrictGeoJsonImporterTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // Estos tests comprueban el filtro por ámbito: se fija en Lima Metropolitana y Callao.
+        config(["ciudadano.ubigeo_prefixes" => ["1501", "0701"]]);
         $this->path = tempnam(sys_get_temp_dir(), 'geo').'.geojson';
         file_put_contents($this->path, json_encode(self::featureCollection()));
     }

@@ -10,15 +10,22 @@ class RankingItemResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
+        $r = $this->resource;
+
         return [
-            'rank' => $this->resource['rank'],
-            'ubigeo' => $this->resource['ubigeo'],
-            'name' => $this->resource['name'],
-            'province' => $this->resource['province'],
-            'population' => $this->resource['population'],
-            'total' => $this->resource['total'],
-            'rate' => $this->resource['rate'],
-            'value' => $this->resource['value'],
+            'rank' => $r['rank'],
+            'code' => $r['code'],
+            'level' => $r['level'],
+            'name' => $r['name'],
+            // Solo distritos: ubigeo y provincia.
+            'ubigeo' => $this->when(isset($r['ubigeo']), $r['ubigeo'] ?? null),
+            'province' => $this->when(isset($r['province']), $r['province'] ?? null),
+            'population' => $r['population'],
+            'total' => $r['total'],
+            'rate' => $r['rate'],
+            'previous_total' => $r['previous_total'],
+            'change_pct' => $r['change_pct'],
+            'value' => $r['value'],
         ];
     }
 }

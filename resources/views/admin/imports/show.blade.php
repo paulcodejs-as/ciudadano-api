@@ -36,7 +36,7 @@
         </dl>
 
         @if ($import->status === 'done')
-            <p class="muted small">Las filas omitidas suelen ser del resto del país: solo se guardan Lima Metropolitana y Callao. El mapa ya muestra los datos nuevos.</p>
+            <p class="muted small">Las filas omitidas tienen un ubigeo sin polígono, una modalidad desconocida o datos inválidos (ver el registro). El mapa ya muestra los datos nuevos.</p>
         @endif
 
         <h2>Registro</h2>

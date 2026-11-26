@@ -20,7 +20,7 @@
             <span class="stat-label">periodo con datos</span>
         </div>
         <div class="stat">
-            <span class="stat-value">{{ $summary['districts'] }}<small>/50</small></span>
+            <span class="stat-value">{{ number_format($summary['districts'], 0, '.', ' ') }}</span>
             <span class="stat-label">distritos con polígono</span>
         </div>
         <div class="stat">
@@ -30,18 +30,18 @@
     </section>
 
     <section class="card">
-        <h2>Subir CSV de Denuncias Policiales</h2>
+        <h2>Subir archivo de Denuncias Policiales</h2>
         <p class="muted">
             Descárgalo a mano de <a href="https://www.datosabiertos.gob.pe/dataset/denuncias-policiales" target="_blank" rel="noopener">datosabiertos.gob.pe</a>
-            (el histórico o un archivo por año). Se guardan solo Lima Metropolitana y Callao. Subir un mes que ya existe lo reemplaza: no se duplica.
+            (el histórico o un archivo por año) en CSV o Excel (.xlsx). Se guardan todos los distritos del país. Subir un mes que ya existe lo reemplaza: no se duplica. Los archivos subidos quedan guardados y se vuelven a cargar solos con <code>php artisan migrate:fresh --seed</code>.
         </p>
 
         <form method="POST" action="{{ route('admin.imports.store') }}" enctype="multipart/form-data" class="upload" id="upload-form"
               data-limit="{{ $uploadLimitBytes }}">
             @csrf
             <label class="dropzone">
-                <input type="file" name="file" accept=".csv,text/csv" required id="file-input">
-                <span class="dz-text" id="file-label">Elige o arrastra un archivo .csv</span>
+                <input type="file" name="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required id="file-input">
+                <span class="dz-text" id="file-label">Elige o arrastra un archivo .csv o .xlsx</span>
                 <span class="muted small">Límite actual: {{ $uploadLimitMb }} MB</span>
             </label>
 
@@ -112,7 +112,7 @@
                 const file = input.files[0];
                 error.hidden = true;
                 btn.disabled = false;
-                if (!file) { label.textContent = 'Elige o arrastra un archivo .csv'; return; }
+                if (!file) { label.textContent = 'Elige o arrastra un archivo .csv o .xlsx'; return; }
                 label.textContent = `${file.name} · ${(file.size / 1024 / 1024).toFixed(1)} MB`;
                 if (file.size > limit) {
                     error.textContent = `El archivo pesa ${(file.size / 1024 / 1024).toFixed(1)} MB y el límite es ${(limit / 1024 / 1024).toFixed(1)} MB. Sube el límite en php.ini o impórtalo por consola.`;

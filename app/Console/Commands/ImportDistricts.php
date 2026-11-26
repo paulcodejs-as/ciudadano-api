@@ -9,12 +9,15 @@ use Throwable;
 class ImportDistricts extends Command
 {
     protected $signature = 'ciudadano:import-districts
-                            {path=storage/app/data/lima_callao_distritos_inei2025.geojson : Ruta al GeoJSON distrital (IDDIST, NOMBDIST, NOMBPROV, NOMBDEP)}';
+                            {path=storage/app/data/peru_distritos_inei2025.geojson : Ruta al GeoJSON distrital (de ciudadano:fetch-districts)}';
 
-    protected $description = 'Importa los polígonos de los distritos de Lima Metropolitana y Callao desde un GeoJSON';
+    protected $description = 'Importa los polígonos (y la población pob_2024, si viene) de los distritos desde un GeoJSON';
 
     public function handle(DistrictGeoJsonImporter $importer): int
     {
+        // El GeoJSON nacional pesa ~66 MB: json_decode necesita bastante memoria.
+        ini_set("memory_limit", "2048M");
+
         $path = $this->resolvePath($this->argument('path'));
         $this->info("Importando distritos desde {$path} ...");
 

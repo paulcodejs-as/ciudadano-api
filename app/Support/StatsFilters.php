@@ -12,6 +12,11 @@ final class StatsFilters
 
     public const METRIC_TOTAL = 'total';
 
+    /** % de cambio frente a los mismos meses del año anterior. */
+    public const METRIC_CHANGE = 'change';
+
+    public const METRICS = [self::METRIC_RATE, self::METRIC_TOTAL, self::METRIC_CHANGE];
+
     public function __construct(
         public readonly int $fromYear,
         public readonly int $fromMonth,
@@ -48,6 +53,19 @@ final class StatsFilters
     {
         return new self($this->fromYear, $this->fromMonth, $this->toYear, $this->toMonth,
             $this->crimeTypeId, $this->crimeTypeSlug, $metric);
+    }
+
+    /** Los mismos meses, 12 meses antes (comparación interanual: respeta la estacionalidad). */
+    public function previousYear(): self
+    {
+        return new self($this->fromYear - 1, $this->fromMonth, $this->toYear - 1, $this->toMonth,
+            $this->crimeTypeId, $this->crimeTypeSlug, $this->metric);
+    }
+
+    /** Copia sin filtro de modalidad. */
+    public function withoutCrimeType(): self
+    {
+        return new self($this->fromYear, $this->fromMonth, $this->toYear, $this->toMonth, null, null, $this->metric);
     }
 
     public function cacheKey(): string

@@ -28,6 +28,9 @@ trait StatsTestData
         District::factory()->squareAround(-77.05, -11.93, 0.01)
             ->create(['ubigeo' => '150110', 'name' => 'COMAS', 'population' => null]);
 
+        // Departamentos y provincias (LIMA 15/1501, CALLAO 07/0701) a partir de los distritos.
+        app(\App\Services\Importers\RegionBuilder::class)->build();
+
         $this->addStat($miraflores, 'robo', 2024, 1, 50);
         $this->addStat($miraflores, 'hurto', 2024, 2, 10);
         $this->addStat($callao, 'robo', 2024, 1, 100);

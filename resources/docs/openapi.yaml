@@ -1,0 +1,903 @@
+openapi: 3.0.3
+info:
+  title: Ciudadano API
+  version: "1.0"
+  description: |
+    Denuncias policiales **registradas** en el Perú por departamento, provincia y distrito
+    (SIDPOL, PNP/Mininter). La consumen la web pública y la app móvil.
+
+    - Todas las respuestas JSON usan `{ success, message, data, meta }`. Los endpoints `/map/*`
+      devuelven un `FeatureCollection` GeoJSON con `meta` dentro de `properties`.
+    - Son denuncias registradas, no delitos ocurridos: hay subregistro.
+    - Desde noviembre de 2024 SIDPOL excluye las denuncias virtuales de robo y hurto (salto en la serie).
+    - Códigos: departamento 2 dígitos, provincia 4, distrito 6 (ubigeo INEI).
+    - Los endpoints de administración requieren un token de `POST /auth/login` (botón **Authorize**).
+servers:
+  - url: /api/v1
+    description: Este servidor
+
+tags:
+  - name: Sistema
+  - name: Catálogos
+    description: Modalidades y listas para los filtros en cascada.
+  - name: Distritos
+  - name: Regiones
+    description: Detalle de cualquier nivel con su contexto.
+  - name: Mapa
+    description: GeoJSON para coropletas.
+  - name: Rankings
+  - name: Autenticación
+    description: Solo administradores reciben token (Sanctum).
+  - name: Administración
+    description: Importación de "Denuncias Policiales" (CSV o Excel .xlsx).
+
+paths:
+  /health:
+    get:
+      tags: [Sistema]
+      summary: Estado del servicio
+      responses:
+        "200":
+          description: Servicio operativo.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          app: { type: string, example: Ciudadano }
+                          php: { type: string, example: "8.1.33" }
+                          laravel: { type: string, example: "10.50.5" }
+                          database: { type: string, example: "8.4.7" }
+
+  /crime-types:
+    get:
+      tags: [Catálogos]
+      summary: Modalidades de denuncia (7)
+      responses:
+        "200":
+          description: Lista de modalidades.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/CrimeType" }
+
+  /geo/departments:
+    get:
+      tags: [Catálogos]
+      summary: Departamentos
+      responses:
+        "200":
+          $ref: "#/components/responses/RegionList"
+
+  /geo/departments/{department}/provinces:
+    get:
+      tags: [Catálogos]
+      summary: Provincias de un departamento
+      parameters:
+        - name: department
+          in: path
+          required: true
+          schema: { type: string, pattern: "^[0-9]{2}$", example: "15" }
+      responses:
+        "200":
+          $ref: "#/components/responses/RegionList"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /geo/provinces/{province}/districts:
+    get:
+      tags: [Catálogos]
+      summary: Distritos de una provincia
+      parameters:
+        - name: province
+          in: path
+          required: true
+          schema: { type: string, pattern: "^[0-9]{4}$", example: "1501" }
+      responses:
+        "200":
+          $ref: "#/components/responses/RegionList"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /districts:
+    get:
+      tags: [Distritos]
+      summary: Todos los distritos del ámbito (sin geometría)
+      responses:
+        "200":
+          description: Lista de distritos.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/District" }
+
+  /districts/{ubigeo}:
+    get:
+      tags: [Distritos]
+      summary: Detalle de un distrito
+      description: Igual que `/regions/{ubigeo}` más los datos del distrito. `by_crime_type` ignora el filtro `crime_type`.
+      parameters:
+        - $ref: "#/components/parameters/Ubigeo"
+        - $ref: "#/components/parameters/Year"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/CrimeType"
+        - $ref: "#/components/parameters/Metric"
+      responses:
+        "200":
+          description: Detalle del distrito.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/StatsEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        allOf:
+                          - type: object
+                            properties:
+                              district: { $ref: "#/components/schemas/District" }
+                          - $ref: "#/components/schemas/RegionDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /districts/locate:
+    get:
+      tags: [Distritos]
+      summary: Distrito que contiene un punto
+      parameters:
+        - name: lat
+          in: query
+          required: true
+          schema: { type: number, minimum: -18.4, maximum: 0.05, example: -12.1211 }
+        - name: lng
+          in: query
+          required: true
+          schema: { type: number, minimum: -81.4, maximum: -68.6, example: -77.0297 }
+      responses:
+        "200":
+          description: Distrito encontrado.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/District" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /districts/compare:
+    get:
+      tags: [Distritos]
+      summary: Comparar de 2 a 4 distritos
+      parameters:
+        - name: ubigeos
+          in: query
+          required: true
+          description: Ubigeos separados por coma, en el orden deseado.
+          schema: { type: string, example: "150122,150131" }
+        - $ref: "#/components/parameters/Year"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/CrimeType"
+        - $ref: "#/components/parameters/Metric"
+      responses:
+        "200":
+          description: Un elemento por distrito, en el orden pedido.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/StatsEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          allOf:
+                            - type: object
+                              properties:
+                                district: { $ref: "#/components/schemas/District" }
+                            - $ref: "#/components/schemas/RegionDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /regions/{code}:
+    get:
+      tags: [Regiones]
+      summary: Detalle de departamento, provincia o distrito
+      description: |
+        Totales, tasa, cambio anual, modalidades, serie mensual, puesto frente a sus hermanos (`ranking.within`),
+        `breadcrumb` y `context`: promedios de sus niveles superiores y del país, y distritos vecinos (solo distritos).
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string, pattern: "^([0-9]{2}|[0-9]{4}|[0-9]{6})$", example: "150122" }
+        - $ref: "#/components/parameters/Year"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/CrimeType"
+        - $ref: "#/components/parameters/Metric"
+      responses:
+        "200":
+          description: Detalle de la región.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/StatsEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        allOf:
+                          - $ref: "#/components/schemas/RegionDetail"
+                          - type: object
+                            properties:
+                              breadcrumb:
+                                type: array
+                                items: { $ref: "#/components/schemas/RegionRef" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /map/regions:
+    get:
+      tags: [Mapa]
+      summary: Mapa por niveles
+      description: Sin `parent` = departamentos del Perú; `parent=15` = provincias; `parent=1501` = distritos.
+      parameters:
+        - $ref: "#/components/parameters/Level"
+        - $ref: "#/components/parameters/Parent"
+        - $ref: "#/components/parameters/Year"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/CrimeType"
+        - $ref: "#/components/parameters/Metric"
+      responses:
+        "200":
+          $ref: "#/components/responses/FeatureCollection"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /map/districts:
+    get:
+      tags: [Mapa]
+      summary: Distritos (de todo el ámbito o de un padre)
+      parameters:
+        - $ref: "#/components/parameters/Parent"
+        - $ref: "#/components/parameters/Year"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/CrimeType"
+        - $ref: "#/components/parameters/Metric"
+      responses:
+        "200":
+          $ref: "#/components/responses/FeatureCollection"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /map/points:
+    get:
+      tags: [Mapa]
+      summary: Un punto por región (mapa de calor y burbujas)
+      description: |
+        Centroide de cada región con sus valores. El centroide solo ubica a la región entera:
+        **no** indica dónde ocurrieron las denuncias (el dato más fino es distrito por mes).
+      parameters:
+        - $ref: "#/components/parameters/Level"
+        - $ref: "#/components/parameters/Parent"
+        - $ref: "#/components/parameters/Year"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/CrimeType"
+        - $ref: "#/components/parameters/Metric"
+      responses:
+        "200":
+          description: Puntos del nivel pedido.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/StatsEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            code: { type: string, example: "150122" }
+                            level: { type: string, enum: [department, province, district] }
+                            name: { type: string, example: MIRAFLORES }
+                            lat: { type: number, example: -12.12084 }
+                            lng: { type: number, example: -77.02918 }
+                            population: { type: integer, nullable: true }
+                            total: { type: integer }
+                            rate: { type: number, nullable: true }
+                            change_pct: { type: number, nullable: true }
+                            value: { type: number, nullable: true }
+                            rank: { type: integer, nullable: true }
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /map/timeline:
+    get:
+      tags: [Mapa]
+      summary: Valor de cada región mes a mes (animación)
+      description: |
+        Una lista de meses (`periods`) y, por región, `totals` y `values` alineados con ella.
+        Con `metric=change`, cada mes se compara con el mismo mes del año anterior.
+        `meta.min_value`/`max_value` sirven para fijar la escala de color durante la animación.
+      parameters:
+        - $ref: "#/components/parameters/Level"
+        - $ref: "#/components/parameters/Parent"
+        - $ref: "#/components/parameters/Year"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/CrimeType"
+        - $ref: "#/components/parameters/Metric"
+      responses:
+        "200":
+          description: Serie mensual por región.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/StatsEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          periods:
+                            type: array
+                            items: { type: string, example: "2026-01" }
+                          items:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                code: { type: string, example: "15" }
+                                name: { type: string, example: LIMA }
+                                population: { type: integer, nullable: true }
+                                totals:
+                                  type: array
+                                  items: { type: integer }
+                                values:
+                                  type: array
+                                  items: { type: number, nullable: true }
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /rankings:
+    get:
+      tags: [Rankings]
+      summary: Ranking por nivel
+      description: Sin `level` ni `parent`, devuelve todos los distritos del ámbito.
+      parameters:
+        - $ref: "#/components/parameters/Level"
+        - $ref: "#/components/parameters/Parent"
+        - $ref: "#/components/parameters/Year"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/CrimeType"
+        - $ref: "#/components/parameters/Metric"
+      responses:
+        "200":
+          description: Lugares ordenados por la métrica.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/StatsEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/RankingItem" }
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /auth/login:
+    post:
+      tags: [Autenticación]
+      summary: Iniciar sesión (administradores)
+      description: Devuelve un token Bearer. Límite de 10 intentos por minuto.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email, example: admin@ciudadano.test }
+                password: { type: string, format: password }
+                device_name: { type: string, maxLength: 100, example: swagger }
+      responses:
+        "200":
+          description: Sesión iniciada.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          token: { type: string, example: "1|abc123..." }
+                          user: { $ref: "#/components/schemas/User" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /auth/logout:
+    post:
+      tags: [Autenticación]
+      summary: Cerrar sesión (revoca el token actual)
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/me:
+    get:
+      tags: [Autenticación]
+      summary: Usuario del token
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Usuario autenticado.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/User" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /admin/imports:
+    get:
+      tags: [Administración]
+      summary: Historial de importaciones (paginado)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Importaciones, la más reciente primero.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Import" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Administración]
+      summary: Subir "Denuncias Policiales" (CSV o Excel)
+      description: Valida la cabecera y encola la importación (upsert por mes, se puede repetir). Acepta CSV (cualquier separador) o Excel .xlsx (primera hoja); el .xls antiguo no. El archivo queda guardado y `ciudadano:load-data` lo vuelve a cargar después de migrar. Responde 202.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary, description: CSV o .xlsx de datosabiertos.gob.pe }
+      responses:
+        "202":
+          description: Importación encolada.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/Import" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /admin/imports/{import}:
+    get:
+      tags: [Administración]
+      summary: Detalle de una importación (con log)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: import
+          in: path
+          required: true
+          schema: { type: integer, example: 1 }
+      responses:
+        "200":
+          description: Importación.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        allOf:
+                          - $ref: "#/components/schemas/Import"
+                          - type: object
+                            properties:
+                              log: { type: string, nullable: true }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Token de `POST /auth/login`.
+
+  parameters:
+    Ubigeo:
+      name: ubigeo
+      in: path
+      required: true
+      schema: { type: string, pattern: "^[0-9]{6}$", example: "150122" }
+    Year:
+      name: year
+      in: query
+      description: Año completo. Excluye `from`/`to`.
+      schema: { type: integer, minimum: 2018, example: 2025 }
+    From:
+      name: from
+      in: query
+      description: Mes inicial `YYYY-MM`. Sin rango se usan los últimos 12 meses con datos.
+      schema: { type: string, pattern: "^[0-9]{4}-[0-9]{2}$", example: "2025-01" }
+    To:
+      name: to
+      in: query
+      description: Mes final `YYYY-MM`.
+      schema: { type: string, pattern: "^[0-9]{4}-[0-9]{2}$", example: "2025-12" }
+    CrimeType:
+      name: crime_type
+      in: query
+      description: Slug de la modalidad (ver `/crime-types`).
+      schema:
+        type: string
+        enum: [estafa, extorsion, hurto, otros, robo, secuestro, violencia-contra-la-mujer]
+    Metric:
+      name: metric
+      in: query
+      description: "`rate` = denuncias por 10 000 hab. (por defecto), `total`, `change` = % frente a los mismos meses del año anterior."
+      schema: { type: string, enum: [rate, total, change], default: rate }
+    Level:
+      name: level
+      in: query
+      description: Nivel a listar. Por defecto, el hijo de `parent` (o departamentos).
+      schema: { type: string, enum: [department, province, district] }
+    Parent:
+      name: parent
+      in: query
+      description: Código del departamento (2 dígitos) o provincia (4).
+      schema: { type: string, pattern: "^[0-9]{2}([0-9]{2})?$", example: "15" }
+
+  responses:
+    Ok:
+      description: Operación correcta.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Envelope" }
+    RegionList:
+      description: Lista para filtros en cascada.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Envelope"
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/RegionItem" }
+    FeatureCollection:
+      description: GeoJSON con `meta`, nivel y ruta en `properties`.
+      content:
+        application/geo+json:
+          schema: { $ref: "#/components/schemas/FeatureCollection" }
+    NotFound:
+      description: No encontrado.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Falta el token o es inválido.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: El usuario no es administrador.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    TooManyRequests:
+      description: Demasiados intentos.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ValidationError:
+      description: Datos inválidos.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ValidationError" }
+
+  schemas:
+    Envelope:
+      type: object
+      properties:
+        success: { type: boolean, example: true }
+        message: { type: string }
+        data: {}
+        meta: { type: object }
+    Error:
+      type: object
+      properties:
+        success: { type: boolean, example: false }
+        message: { type: string, example: No encontrado. }
+        data: { nullable: true, example: null }
+        meta: { type: object }
+    ValidationError:
+      allOf:
+        - $ref: "#/components/schemas/Error"
+        - type: object
+          properties:
+            errors:
+              type: object
+              additionalProperties:
+                type: array
+                items: { type: string }
+              example: { metric: ["El campo metric no es válido."] }
+    StatsMeta:
+      type: object
+      properties:
+        from: { type: string, example: "2025-11" }
+        to: { type: string, example: "2026-10" }
+        crime_type: { type: string, nullable: true }
+        metric: { type: string, enum: [rate, total, change], description: Métrica efectiva (pasa a `total` si no hay población). }
+        metric_requested: { type: string }
+        latest_period: { type: string, example: "2026-10" }
+        population_source: { type: string }
+        comparison:
+          type: object
+          properties:
+            available: { type: boolean }
+            from: { type: string, example: "2024-11" }
+            to: { type: string, example: "2025-10" }
+        notices:
+          type: array
+          description: Avisos que la interfaz debe mostrar siempre.
+          items: { type: string }
+    StatsEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/Envelope"
+        - type: object
+          properties:
+            meta: { $ref: "#/components/schemas/StatsMeta" }
+    CrimeType:
+      type: object
+      properties:
+        slug: { type: string, example: robo }
+        name: { type: string, example: Robo }
+        color: { type: string, example: "#D7263D" }
+    RegionItem:
+      type: object
+      properties:
+        code: { type: string, example: "15" }
+        name: { type: string, example: LIMA }
+        population: { type: integer, nullable: true, example: 10892316 }
+    RegionRef:
+      type: object
+      properties:
+        code: { type: string, nullable: true, example: "1501" }
+        level: { type: string, enum: [country, department, province, district] }
+        name: { type: string, example: LIMA }
+        population: { type: integer, nullable: true }
+    District:
+      type: object
+      properties:
+        ubigeo: { type: string, example: "150122" }
+        name: { type: string, example: MIRAFLORES }
+        province: { type: string, example: LIMA }
+        department: { type: string, example: LIMA }
+        population: { type: integer, nullable: true, example: 118009 }
+        area_km2: { type: number, nullable: true, example: 9.62 }
+    MonthlyPoint:
+      type: object
+      properties:
+        period: { type: string, example: "2026-01" }
+        total: { type: integer }
+        rate: { type: number, nullable: true }
+        previous_total: { type: integer, nullable: true }
+    Average:
+      type: object
+      properties:
+        code: { type: string, nullable: true }
+        level: { type: string, enum: [country, department, province] }
+        name: { type: string }
+        population: { type: integer, nullable: true }
+        total: { type: integer }
+        rate: { type: number, nullable: true }
+        change_pct: { type: number, nullable: true }
+    Neighbor:
+      type: object
+      properties:
+        ubigeo: { type: string }
+        name: { type: string }
+        province: { type: string }
+        population: { type: integer, nullable: true }
+        total: { type: integer }
+        rate: { type: number, nullable: true }
+        change_pct: { type: number, nullable: true }
+    RegionDetail:
+      type: object
+      properties:
+        region: { $ref: "#/components/schemas/RegionRef" }
+        total: { type: integer, example: 6896 }
+        rate: { type: number, nullable: true, example: 584.36 }
+        previous_total: { type: integer, nullable: true, example: 10007 }
+        change_pct: { type: number, nullable: true, example: -31.1 }
+        ranking:
+          type: object
+          properties:
+            position: { type: integer, example: 5 }
+            of: { type: integer, example: 43 }
+            metric: { type: string }
+            within: { $ref: "#/components/schemas/RegionRef" }
+        by_crime_type:
+          type: array
+          items:
+            allOf:
+              - $ref: "#/components/schemas/CrimeType"
+              - type: object
+                properties:
+                  total: { type: integer }
+                  rate: { type: number, nullable: true }
+                  previous_total: { type: integer, nullable: true }
+                  change_pct: { type: number, nullable: true }
+        monthly:
+          type: array
+          items: { $ref: "#/components/schemas/MonthlyPoint" }
+        context:
+          type: object
+          properties:
+            averages:
+              type: array
+              items: { $ref: "#/components/schemas/Average" }
+            neighbors:
+              type: array
+              items: { $ref: "#/components/schemas/Neighbor" }
+    RankingItem:
+      type: object
+      properties:
+        rank: { type: integer, example: 1 }
+        code: { type: string, example: "14" }
+        level: { type: string, enum: [department, province, district] }
+        name: { type: string, example: LAMBAYEQUE }
+        ubigeo: { type: string, description: Solo distritos. }
+        province: { type: string, description: Solo distritos. }
+        population: { type: integer, nullable: true }
+        total: { type: integer }
+        rate: { type: number, nullable: true }
+        previous_total: { type: integer, nullable: true }
+        change_pct: { type: number, nullable: true }
+        value: { type: number, nullable: true, description: Valor de la métrica pedida. }
+    FeatureCollection:
+      type: object
+      properties:
+        type: { type: string, example: FeatureCollection }
+        properties:
+          allOf:
+            - $ref: "#/components/schemas/StatsMeta"
+            - type: object
+              properties:
+                level: { type: string, enum: [department, province, district] }
+                child_level: { type: string, nullable: true }
+                parent: { allOf: [{ $ref: "#/components/schemas/RegionRef" }], nullable: true }
+                breadcrumb:
+                  type: array
+                  items: { $ref: "#/components/schemas/RegionRef" }
+                count: { type: integer }
+                min_value: { type: number, nullable: true }
+                max_value: { type: number, nullable: true }
+        features:
+          type: array
+          items:
+            type: object
+            properties:
+              type: { type: string, example: Feature }
+              geometry:
+                type: object
+                description: MultiPolygon simplificado (lng, lat).
+              properties:
+                allOf:
+                  - $ref: "#/components/schemas/RankingItem"
+    User:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        email: { type: string, format: email }
+        is_admin: { type: boolean }
+    Import:
+      type: object
+      properties:
+        id: { type: integer }
+        status: { type: string, enum: [pending, running, done, failed] }
+        file_name: { type: string }
+        rows_read: { type: integer }
+        rows_imported: { type: integer }
+        rows_skipped: { type: integer }
+        user:
+          type: object
+          nullable: true
+          properties:
+            id: { type: integer }
+            name: { type: string }
+        created_at: { type: string, format: date-time }
+        started_at: { type: string, format: date-time, nullable: true }
+        finished_at: { type: string, format: date-time, nullable: true }
+        duration_seconds: { type: integer, nullable: true }

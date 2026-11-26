@@ -2,6 +2,7 @@
 
 namespace App\Services\Importers;
 
+use App\Support\UbigeoScope;
 use App\Models\District;
 use App\Services\StatsCache;
 use RuntimeException;
@@ -97,7 +98,7 @@ class PopulationCsvImporter
             $log[] = 'Ubigeos sin distrito importado: '.implode(', ', $unknown);
         }
 
-        $missing = District::limaCallao()->whereNull('population')->pluck('ubigeo')->all();
+        $missing = District::inScope()->whereNull('population')->pluck('ubigeo')->all();
         if ($missing) {
             $log[] = 'Distritos que siguen sin población: '.implode(', ', $missing);
         }
@@ -148,14 +149,9 @@ class PopulationCsvImporter
         return (string) array_key_first($counts);
     }
 
-    private function inScope(string $ubigeo, array $prefixes): bool
+    /** Ámbito configurado (todo el país si no hay prefijos). */
+    private function inScope(string $ubigeo, array $prefixes = []): bool
     {
-        foreach ($prefixes as $prefix) {
-            if (str_starts_with($ubigeo, $prefix)) {
-                return true;
-            }
-        }
-
-        return false;
+        return UbigeoScope::contains($ubigeo);
     }
 }

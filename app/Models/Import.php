@@ -23,6 +23,7 @@ class Import extends Model
         'user_id',
         'file_name',
         'file_path',
+        'file_hash',
         'rows_read',
         'rows_imported',
         'rows_skipped',

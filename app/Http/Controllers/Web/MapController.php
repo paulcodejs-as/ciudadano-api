@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
 use App\Models\CrimeType;
+use App\Models\Department;
 use App\Services\CrimeStatsService;
 use Illuminate\Contracts\View\View;
 
@@ -30,12 +31,16 @@ class MapController extends Controller
 
         return view('map.index', [
             'crimeTypes' => CrimeType::orderBy('name')->get(['slug', 'name']),
+            'departments' => Department::orderBy('name')->get(['code', 'name']),
             'years' => $years,
             'config' => [
                 'apiBase' => url('/api/v1'),
                 'cutoff' => config('ciudadano.virtual_reports_cutoff'),
-                'center' => [-12.05, -77.03],
+                'center' => [-9.3, -75.0],
+                'zoom' => 5,
                 'months' => self::MONTHS,
+                'firstPeriod' => $earliest?->format('Y-m'),
+                'latestPeriod' => $latest?->format('Y-m'),
             ],
             'hasData' => $latest !== null,
         ]);

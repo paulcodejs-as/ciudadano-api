@@ -17,6 +17,8 @@ class PopulationCsvImporterTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // Estos tests comprueban el filtro por ámbito: se fija en Lima Metropolitana y Callao.
+        config(["ciudadano.ubigeo_prefixes" => ["1501", "0701"]]);
         $this->seedStats(); // Miraflores 100 000, Callao 400 000, Comas sin población
     }
 

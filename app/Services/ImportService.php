@@ -7,25 +7,30 @@ use App\Models\DataSource;
 use App\Models\District;
 use App\Models\Import;
 use App\Models\User;
+use App\Services\Importers\SidpolCsvImporter;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
-/** Importaciones desde el panel admin y la API: guardar el CSV, encolar, resumir. */
+/** Importaciones desde el panel admin y la API: guardar el archivo, encolar, resumir. */
 class ImportService
 {
     public function __construct(private readonly CrimeStatsService $stats)
     {
     }
 
-    /** Guarda el CSV en storage/app/imports y encola su procesamiento. */
+    /**
+     * Guarda el archivo (CSV o .xlsx) en storage/app/imports y encola su procesamiento.
+     * El archivo se conserva: `ciudadano:load-data` lo vuelve a cargar después de migrar.
+     */
     public function queueSidpolUpload(UploadedFile $file, User $user): Import
     {
         $source = DataSource::where('slug', DataSource::SIDPOL)->firstOrFail();
 
+        $extension = SidpolCsvImporter::detectFormat($file->getRealPath()) === 'xlsx' ? 'xlsx' : 'csv';
         $path = $file->storeAs(
             'imports',
-            now()->format('Ymd_His').'_'.Str::random(6).'.csv',
+            now()->format('Ymd_His').'_'.Str::random(6).'.'.$extension,
             'local'
         );
 
@@ -61,8 +66,8 @@ class ImportService
             ->first();
 
         return [
-            'districts' => District::limaCallao()->count(),
-            'districts_with_population' => District::limaCallao()->whereNotNull('population')->count(),
+            'districts' => District::inScope()->count(),
+            'districts_with_population' => District::inScope()->whereNotNull('population')->count(),
             'from' => $this->stats->earliestPeriod()?->format('Y-m'),
             'to' => $this->stats->latestPeriod()?->format('Y-m'),
             'monthly_rows' => (int) $totals->rows_count,

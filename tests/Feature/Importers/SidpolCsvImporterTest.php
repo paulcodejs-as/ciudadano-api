@@ -10,17 +10,20 @@ use App\Services\Importers\SidpolCsvImporter;
 use Database\Seeders\CrimeTypeSeeder;
 use Database\Seeders\DataSourceSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Support\WritesXlsx;
 use Tests\TestCase;
 
 class SidpolCsvImporterTest extends TestCase
 {
-    use RefreshDatabase;
+    use RefreshDatabase, WritesXlsx;
 
     private array $tempFiles = [];
 
     protected function setUp(): void
     {
         parent::setUp();
+        // Estos tests comprueban el filtro por ámbito: se fija en Lima Metropolitana y Callao.
+        config(["ciudadano.ubigeo_prefixes" => ["1501", "0701"]]);
         $this->seed([CrimeTypeSeeder::class, DataSourceSeeder::class]);
         District::factory()->create(['ubigeo' => '150122', 'name' => 'MIRAFLORES']);
         District::factory()->callao()->create(['ubigeo' => '070101', 'name' => 'CALLAO']);
@@ -92,6 +95,75 @@ class SidpolCsvImporterTest extends TestCase
 
         $this->assertSame(1, $import->rows_imported);
         $this->assertSame(6, $this->monthlyCount('150122', 'violencia-contra-la-mujer', 2026, 3));
+    }
+
+    public function test_reads_excel_xlsx_with_numeric_cells(): void
+    {
+        $path = $this->tempFiles[] = self::xlsxFile([
+            ['ANIO', 'MES', 'DPTO_HECHO', 'PROV_HECHO', 'DIST_HECHO', 'UBIGEO_HECHO', 'P_MODALIDADES', 'cantidad'],
+            [2024, 1, 'LIMA', 'LIMA', 'MIRAFLORES', 150122, 'Robo', 3],
+            [2024.0, 1, 'CALLAO', 'CALLAO', 'CALLAO', 70101, 'Hurto', 4.0], // ubigeo sin 0 inicial
+            [null, null, null, null, null, null, null, null],                  // fila vacía
+            [2024, 2, 'LIMA', 'LIMA', 'MIRAFLORES', 150122, 'Extorsión', 2],
+        ]);
+
+        $this->assertSame('xlsx', SidpolCsvImporter::detectFormat($path));
+        $this->assertNull(app(SidpolCsvImporter::class)->headerError($path));
+
+        $import = app(SidpolCsvImporter::class)->import($path);
+
+        $this->assertSame(Import::STATUS_DONE, $import->status);
+        $this->assertSame(3, $import->rows_imported);
+        $this->assertSame(sha1_file($path), $import->file_hash);
+        $this->assertSame(3, $this->monthlyCount('150122', 'robo', 2024, 1));
+        $this->assertSame(4, $this->monthlyCount('070101', 'hurto', 2024, 1));
+        $this->assertSame(2, $this->monthlyCount('150122', 'extorsion', 2024, 2));
+    }
+
+    public function test_rejects_old_xls_with_a_clear_message(): void
+    {
+        $path = $this->tempFile("\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1".str_repeat("\0", 100));
+
+        $this->assertStringContainsString('.xlsx', (string) app(SidpolCsvImporter::class)->headerError($path));
+    }
+
+    public function test_load_data_command_loads_every_saved_file_once(): void
+    {
+        $dir = sys_get_temp_dir().DIRECTORY_SEPARATOR.'ciudadano_load_'.uniqid();
+        mkdir($dir);
+        $csv = implode("\n", ['ANIO,MES,UBIGEO_HECHO,P_MODALIDADES,cantidad', '2024,1,150122,Robo,5']);
+        file_put_contents($this->tempFiles[] = "{$dir}/denuncias_2024.csv", $csv);
+        file_put_contents($this->tempFiles[] = "{$dir}/copia.csv", $csv);                       // repetido: se carga una vez
+        file_put_contents($this->tempFiles[] = "{$dir}/poblacion.csv", "ubigeo,poblacion\n150122,100\n"); // no es SIDPOL
+        $xlsx = self::xlsxFile([['ANIO', 'MES', 'UBIGEO_HECHO', 'P_MODALIDADES', 'cantidad'], [2025, 3, 70101, 'Hurto', 8]]);
+        rename($xlsx, $this->tempFiles[] = "{$dir}/denuncias_2025.xlsx");
+        config(['ciudadano.data_paths' => [$dir]]);
+
+        $this->artisan('ciudadano:load-data')
+            ->expectsOutputToContain('2 cargados, 0 ya cargados, 0 con error')
+            ->assertSuccessful();
+
+        $this->assertSame(2, Import::count());
+        $this->assertSame(5, $this->monthlyCount('150122', 'robo', 2024, 1));
+        $this->assertSame(8, $this->monthlyCount('070101', 'hurto', 2025, 3));
+
+        // Correrlo otra vez no repite nada.
+        $this->artisan('ciudadano:load-data')
+            ->expectsOutputToContain('0 cargados, 2 ya cargados')
+            ->assertSuccessful();
+        $this->assertSame(2, Import::count());
+
+        @rmdir($dir);
+    }
+
+    public function test_load_data_command_needs_districts_or_geojson(): void
+    {
+        District::query()->delete();
+        config(['ciudadano.districts_geojson' => 'no/existe.geojson']);
+
+        $this->artisan('ciudadano:load-data')
+            ->expectsOutputToContain('ciudadano:fetch-districts')
+            ->assertFailed();
     }
 
     public function test_fails_with_missing_columns(): void

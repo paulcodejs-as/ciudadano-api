@@ -7,7 +7,7 @@ use App\Services\Importers\SidpolCsvImporter;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
 
-/** CSV "Denuncias Policiales" subido desde el panel o la API. */
+/** "Denuncias Policiales" (CSV o Excel .xlsx) subido desde el panel o la API. */
 class StoreImportRequest extends FormRequest
 {
     public function authorize(): bool
@@ -20,7 +20,7 @@ class StoreImportRequest extends FormRequest
         $maxKb = intdiv(app(ImportService::class)->uploadLimitBytes(), 1024);
 
         return [
-            'file' => ['required', 'file', 'extensions:csv,txt', "max:{$maxKb}"],
+            'file' => ['required', 'file', 'extensions:csv,txt,xlsx', "max:{$maxKb}"],
         ];
     }
 
@@ -31,7 +31,7 @@ class StoreImportRequest extends FormRequest
                 return;
             }
 
-            // Falla rápido si no es el CSV de SIDPOL, en vez de encolar algo que fallará.
+            // Falla rápido si no es el archivo de SIDPOL, en vez de encolar algo que fallará.
             $error = app(SidpolCsvImporter::class)->headerError($this->file('file')->getRealPath());
             if ($error) {
                 $v->errors()->add('file', $error);
@@ -44,9 +44,9 @@ class StoreImportRequest extends FormRequest
         $limitMb = round(app(ImportService::class)->uploadLimitBytes() / 1024 / 1024, 1);
 
         return [
-            'file.required' => 'Elige el archivo CSV de Denuncias Policiales.',
+            'file.required' => 'Elige el archivo CSV o Excel (.xlsx) de Denuncias Policiales.',
             'file.uploaded' => "El archivo no se pudo subir. ¿Supera el límite de {$limitMb} MB?",
-            'file.extensions' => 'El archivo debe ser un CSV.',
+            'file.extensions' => 'El archivo debe ser CSV o Excel (.xlsx).',
             'file.max' => "El archivo supera el límite de {$limitMb} MB.",
         ];
     }

@@ -5,13 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex">
     <title>@yield('title', 'Panel') · Ciudadano admin</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('img/favicon-32.png') }}">
     @stack('head')
     @vite(['resources/css/admin.css'])
 </head>
 <body>
     <header class="topbar">
         <a class="brand" href="{{ auth()->check() ? route('admin.imports.index') : route('login') }}">
-            <span class="brand-mark" aria-hidden="true"></span>
+            <img class="brand-mark" src="{{ asset('img/ciudadano-mark.png') }}" alt="" width="32" height="32">
             <span><strong>Ciudadano</strong> <span class="muted">· panel</span></span>
         </a>
         @auth
